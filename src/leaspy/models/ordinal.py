@@ -23,8 +23,9 @@ from leaspy.variables.specs import (
     VariableNameToValueMapping,
 )
 
+from .base import InitializationMethod
 from .logistic import LogisticModel
-
+from scipy.optimize import minimize
 
 @doc_with_super(if_other_signature="force")
 class OrdinalModel(LogisticModel):
@@ -130,10 +131,283 @@ class OrdinalModel(LogisticModel):
         """Compute initial values for model parameters and for the ordinal deltas parameters
         and initializes ordinal noise_model attributes.
         """
-        parameters = super()._compute_initial_values_for_model_parameters(dataset)
+
+        from leaspy.models.utilities import torch_round
 
         df = dataset.to_pandas(apply_headers=True)
 
+        # ========================================================
+        # Ordinal-specific initialization of g, v0 and tau
+        # using the anchor trajectory P(Y >= 1)
+        # ========================================================
+
+        time_values = (
+            df.index
+            .get_level_values("TIME")
+            .to_numpy(dtype=float)
+        )
+
+        time_mu = float(
+            np.mean(time_values)
+        )
+
+        time_sigma = float(
+            np.std(time_values)
+        )
+
+        log_g_initial = []
+        log_v0_initial = []
+
+
+        for feature in self.features:
+
+            feature_series = (
+                df[feature]
+                .dropna()
+            )
+
+            times = (
+                feature_series.index
+                .get_level_values("TIME")
+                .to_numpy(dtype=float)
+            )
+
+            # Binary observations for the anchor cumulative curve
+            y_binary = (
+                feature_series
+                .to_numpy(dtype=float)
+                >= 1.0
+            ).astype(float)
+
+            centered_times = (
+                times - time_mu
+            )
+
+            # Initial intercept based on the empirical binary proportion
+            empirical_probability = np.clip(
+                y_binary.mean(),
+                1e-2,
+                1.0 - 1e-2,
+            )
+
+            intercept_initial = np.log(
+                empirical_probability
+                / (1.0 - empirical_probability)
+            )
+
+            # Positive initial time slope
+            initial_log_slope = np.log(0.1)
+
+            def negative_log_likelihood(
+                parameters_binary,
+            ):
+                intercept = parameters_binary[0]
+
+                # Enforce a positive progression slope
+                slope = np.exp(
+                    parameters_binary[1]
+                )
+
+                linear_predictor = (
+                    intercept
+                    + slope * centered_times
+                )
+
+                # Stable binary logistic negative log-likelihood:
+                # log(1 + exp(eta)) - y * eta
+                nll = np.sum(
+                    np.logaddexp(
+                        0.0,
+                        linear_predictor,
+                    )
+                    - y_binary * linear_predictor
+                )
+
+                # Very small regularization for numerical stability
+                regularization = (
+                    1e-6
+                    * np.sum(
+                        parameters_binary**2
+                    )
+                )
+
+                return nll + regularization
+
+            optimization_result = minimize(
+                negative_log_likelihood,
+                x0=np.array(
+                    [
+                        intercept_initial,
+                        initial_log_slope,
+                    ],
+                    dtype=float,
+                ),
+                method="L-BFGS-B",
+                bounds=[
+                    (None, None),
+                    (
+                        np.log(1e-4),
+                        np.log(1e2),
+                    ),
+                ],
+            )
+
+            if not optimization_result.success:
+                raise RuntimeError(
+                    "Binary logistic initialization failed "
+                    f"for feature '{feature}': "
+                    f"{optimization_result.message}"
+                )
+
+            intercept = float(
+                optimization_result.x[0]
+            )
+
+            log_effective_slope = float(
+                optimization_result.x[1]
+            )
+
+            effective_slope = np.exp(
+                log_effective_slope
+            )
+
+            # At t = tau = time_mu:
+            #
+            # logit P(Y >= 1) = -log(g)
+            #
+            # Therefore:
+            # log(g) = -intercept
+            log_g = -intercept
+
+            g = np.exp(log_g)
+
+            # Model effective time slope:
+            #
+            # effective_slope
+            # = ((g + 1)^2 / g) * v0
+            metric = (
+                (g + 1.0) ** 2
+                / g
+            )
+
+            v0 = (
+                effective_slope
+                / metric
+            )
+
+            log_v0 = np.log(
+                np.clip(
+                    v0,
+                    1e-8,
+                    None,
+                )
+            )
+
+            log_g_initial.append(
+                log_g
+            )
+
+            log_v0_initial.append(
+                log_v0
+            )
+
+
+        log_g_initial = torch.tensor(
+            log_g_initial,
+            dtype=torch.float32,
+        )
+
+        log_v0_initial = torch.tensor(
+            log_v0_initial,
+            dtype=torch.float32,
+        )
+
+        tau_initial = torch.tensor(
+            [time_mu],
+            dtype=torch.float32,
+        )
+        # ========================================================
+        # Build the initial population parameters
+        # ========================================================
+
+        if self.initialization_method == InitializationMethod.DEFAULT:
+
+            log_g = log_g_initial
+            log_v0 = log_v0_initial
+            t0 = tau_initial
+
+            betas = torch.zeros(
+                (
+                    self.dimension - 1,
+                    self.source_dimension,
+                ),
+                dtype=torch.float32,
+            )
+
+        elif self.initialization_method == InitializationMethod.RANDOM:
+
+            # Random perturbations around the pooled binary
+            # logistic estimates.
+            log_g = (
+                log_g_initial
+                + 0.1 * torch.randn_like(
+                    log_g_initial
+                )
+            )
+
+            log_v0 = (
+                log_v0_initial
+                + 0.1 * torch.randn_like(
+                    log_v0_initial
+                )
+            )
+
+            t0 = torch.normal(
+                mean=tau_initial,
+                std=torch.tensor(
+                    [time_sigma],
+                    dtype=torch.float32,
+                ),
+            )
+
+            betas = torch.randn(
+                (
+                    self.dimension - 1,
+                    self.source_dimension,
+                ),
+                dtype=torch.float32,
+            )
+
+        else:
+            raise ValueError(
+                "Unsupported initialization method: "
+                f"{self.initialization_method}"
+            )
+
+        parameters = {
+            "log_g_mean": log_g,
+            "log_v0_mean": log_v0,
+            "tau_mean": t0,
+            "tau_std": self.tau_std,
+            "xi_std": self.xi_std,
+        }
+
+        if self.source_dimension >= 1:
+            parameters["betas_mean"] = betas
+
+        parameters = {
+            str(parameter_name): torch_round(
+                parameter_value.to(
+                    torch.float32
+                )
+            )
+            for parameter_name, parameter_value
+            in parameters.items()
+        }
+
+        # ========================================================
+        # Existing ordinal deltas initialization
+        # ========================================================
         deltas = {}
         for feature, s in df.items():  # preserve feature order
             max_level = int(

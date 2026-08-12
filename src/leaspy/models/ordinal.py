@@ -141,95 +141,45 @@ class OrdinalModel(LogisticModel):
         # using the anchor trajectory P(Y >= 1)
         # ========================================================
 
-        time_values = (
-            df.index
-            .get_level_values("TIME")
-            .to_numpy(dtype=float)
-        )
-
-        time_mu = float(
-            np.mean(time_values)
-        )
-
-        time_sigma = float(
-            np.std(time_values)
-        )
+        time_values = (df.index.get_level_values("TIME").to_numpy(dtype=float))
+        time_mu = float(np.mean(time_values))
+        time_sigma = float(np.std(time_values))
 
         log_g_initial = []
         log_v0_initial = []
 
 
         for feature in self.features:
+            feature_series = (df[feature].dropna())
 
-            feature_series = (
-                df[feature]
-                .dropna()
-            )
-
-            times = (
-                feature_series.index
-                .get_level_values("TIME")
-                .to_numpy(dtype=float)
-            )
+            times = (feature_series.index.get_level_values("TIME").to_numpy(dtype=float))
 
             # Binary observations for the anchor cumulative curve
-            y_binary = (
-                feature_series
-                .to_numpy(dtype=float)
-                >= 1.0
-            ).astype(float)
-
-            centered_times = (
-                times - time_mu
-            )
+            y_binary = (feature_series.to_numpy(dtype=float) >= 1.0 ).astype(float)
+            centered_times = (times - time_mu)
 
             # Initial intercept based on the empirical binary proportion
-            empirical_probability = np.clip(
-                y_binary.mean(),
-                1e-2,
-                1.0 - 1e-2,
-            )
+            empirical_probability = np.clip(y_binary.mean(),1e-2,1.0 - 1e-2,)
 
-            intercept_initial = np.log(
-                empirical_probability
-                / (1.0 - empirical_probability)
-            )
+            intercept_initial = np.log(empirical_probability / (1.0 - empirical_probability))
 
             # Positive initial time slope
             initial_log_slope = np.log(0.1)
 
-            def negative_log_likelihood(
-                parameters_binary,
-            ):
+            def negative_log_likelihood(parameters_binary,):
                 intercept = parameters_binary[0]
 
                 # Enforce a positive progression slope
-                slope = np.exp(
-                    parameters_binary[1]
-                )
+                slope = np.exp(parameters_binary[1])
 
-                linear_predictor = (
-                    intercept
-                    + slope * centered_times
-                )
+                linear_predictor = (intercept + slope * centered_times)
 
                 # Stable binary logistic negative log-likelihood:
                 # log(1 + exp(eta)) - y * eta
-                nll = np.sum(
-                    np.logaddexp(
-                        0.0,
-                        linear_predictor,
-                    )
-                    - y_binary * linear_predictor
-                )
+                nll = np.sum(np.logaddexp(0.0,linear_predictor,) - y_binary * linear_predictor)
 
                 # Very small regularization for numerical stability
-                regularization = (
-                    1e-6
-                    * np.sum(
-                        parameters_binary**2
-                    )
-                )
+                regularization = (1e-6 * np.sum(parameters_binary**2))
 
                 return nll + regularization
 
@@ -259,17 +209,11 @@ class OrdinalModel(LogisticModel):
                     f"{optimization_result.message}"
                 )
 
-            intercept = float(
-                optimization_result.x[0]
-            )
+            intercept = float(optimization_result.x[0])
 
-            log_effective_slope = float(
-                optimization_result.x[1]
-            )
+            log_effective_slope = float(optimization_result.x[1])
 
-            effective_slope = np.exp(
-                log_effective_slope
-            )
+            effective_slope = np.exp(log_effective_slope)
 
             # At t = tau = time_mu:
             #
@@ -285,42 +229,17 @@ class OrdinalModel(LogisticModel):
             #
             # effective_slope
             # = ((g + 1)^2 / g) * v0
-            metric = (
-                (g + 1.0) ** 2
-                / g
-            )
+            metric = ((g + 1.0) ** 2 / g)
 
-            v0 = (
-                effective_slope
-                / metric
-            )
-
-            log_v0 = np.log(
-                np.clip(
-                    v0,
-                    1e-8,
-                    None,
-                )
-            )
-
-            log_g_initial.append(
-                log_g
-            )
-
-            log_v0_initial.append(
-                log_v0
-            )
+            v0 = (effective_slope / metric)
+            log_v0 = np.log(np.clip(v0,1e-8,None,))
+            log_g_initial.append(log_g)
+            log_v0_initial.append(log_v0)
 
 
-        log_g_initial = torch.tensor(
-            log_g_initial,
-            dtype=torch.float32,
-        )
+        log_g_initial = torch.tensor(log_g_initial,dtype=torch.float32,)
 
-        log_v0_initial = torch.tensor(
-            log_v0_initial,
-            dtype=torch.float32,
-        )
+        log_v0_initial = torch.tensor(log_v0_initial,dtype=torch.float32,)
 
         tau_initial = torch.tensor(
             [time_mu],

@@ -59,6 +59,16 @@ class OrdinalModel(LogisticModel):
             d["max_levels"] = self.max_levels
         return d
 
+    def _get_deltas_mask(self) -> torch.Tensor:
+        """Return True for valid deltas and False for padded positions."""
+        return torch.tensor(
+            [
+                [j < max_level - 1 for j in range(self.max_level - 1)]
+                for max_level in self.max_levels.values()
+            ],
+            dtype=torch.bool,
+        )
+
     def initialize(self, dataset: Optional[Dataset] = None) -> None:
         """Overloads base model initialization (in particular to handle internal model State).
 
@@ -175,6 +185,7 @@ class OrdinalModel(LogisticModel):
             # LATENT VARS
             log_deltas=PopulationLatentVariable(
                 Normal("log_deltas_mean", "log_deltas_std"),
+                sampling_kws={"mask": self._get_deltas_mask()},
             ),
             # DERIVED VARS
             deltas=LinkedVariable(Exp("log_deltas")),

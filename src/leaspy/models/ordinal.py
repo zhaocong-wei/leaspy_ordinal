@@ -45,6 +45,8 @@ class OrdinalModel(LogisticModel):
         * If hyperparameters are inconsistent
     """
 
+    type = "ordinal"
+
     def __init__(self, name: str, **kwargs):
         max_levels = kwargs.pop("max_levels", None)
         kwargs.setdefault("obs_models", "ordinal")

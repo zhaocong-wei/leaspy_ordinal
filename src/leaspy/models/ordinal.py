@@ -44,6 +44,7 @@ class OrdinalModel(LogisticModel):
     :exc:`.LeaspyModelInputError`
         * If hyperparameters are inconsistent
     """
+    type = "ordinal"
 
     def __init__(self, name: str, **kwargs):
         max_levels = kwargs.pop("max_levels", None)

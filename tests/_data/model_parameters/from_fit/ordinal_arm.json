@@ -143,8 +143,8 @@
   "fit_metrics": {
     "nll_attach": 1076.7838134765625,
     "nll_regul_ind_sum": 102.99504852294922,
-    "nll_regul_pop_sum": NaN,
-    "nll_tot": NaN
+    "nll_regul_pop_sum": -57.06170654296875,
+    "nll_tot": 1122.717155456543
   },
   "source_dimension": 2,
   "max_levels": {

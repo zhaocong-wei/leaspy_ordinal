@@ -135,7 +135,7 @@
     "n_iter": 100,
     "n_burn_in_iter": 90,
     "converged": null,
-    "duration": "5.146s"
+    "duration": "22.075s"
   },
   "obs_models": {
     "y": "ordinal"
@@ -143,8 +143,8 @@
   "fit_metrics": {
     "nll_attach": 1076.7835693359375,
     "nll_regul_ind_sum": 102.99507904052734,
-    "nll_regul_pop_sum": NaN,
-    "nll_tot": NaN
+    "nll_regul_pop_sum": -57.06170654296875,
+    "nll_tot": 1122.717041015625
   },
   "source_dimension": 2,
   "max_levels": {

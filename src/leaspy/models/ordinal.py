@@ -326,6 +326,7 @@ class OrdinalModel(LogisticModel):
             log_deltas=PopulationLatentVariable(
                 Normal("log_deltas_mean", "log_deltas_std"),
                 sampling_kws={"mask": self._get_deltas_mask()},
+                regularity_mask=self._get_deltas_mask(),
             ),
             # DERIVED VARS
             deltas=LinkedVariable(Exp("log_deltas")),

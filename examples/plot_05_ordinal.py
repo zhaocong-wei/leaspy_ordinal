@@ -6,7 +6,7 @@ This example illustrates the main steps for using the ``OrdinalModel``:
 
 1. loading and inspecting ordinal longitudinal data;
 2. fitting the population model;
-3. estimating individual parameters;
+3. interpreting the fitted population parameters and visualizing ordinal transitions.
 """
 
 # %%
@@ -24,8 +24,7 @@ print(data.to_dataframe().head())
 
 # %%
 # Show how often each ordinal score occurs for each item.
-# Rows are ordinal scores, columns are items (Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y8), and each cell
-# gives the number of observations with that score for that item.
+# Rows are ordinal scores, columns are items (Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y8), and each cell gives the number of observations with that score for that item.
 # Items may have different ranges of scores.
 
 import pandas as pd
@@ -44,15 +43,13 @@ level_counts.index.name = "Ordinal score"
 print(level_counts.sort_index().to_string())
 
 # %%
-# Fit the population model to all patients' longitudinal observations.
-# This estimates the shared progression pattern before individual parameters are estimated in the next step.
-#
+# Fit the population model to the patients' longitudinal observations.
 # ``source_dimension`` sets the number of latent sources used to capture variation across items.
-# A practical starting point is roughly the square root of the number of items. For three items, we choose two sources.
+# A practical starting point is roughly the square root of the number of items. For eight items, we choose three sources.
 
 from leaspy.models import OrdinalModel
 
-model = OrdinalModel(name="ordinal", source_dimension=2)
+model = OrdinalModel(name="ordinal", source_dimension=3)
 model.fit(
     data,
     "mcmc_saem",
@@ -63,48 +60,56 @@ model.fit(
 
 
 # %%
-# Inspect the fitted population parameters.
-#
-# As in the multivariate logistic model, the fitted population parameters
-# include ``log_g_mean``, ``log_v0_mean``, ``tau_mean``, and ``betas_mean``.
-# These describe the population trajectories and the effects of latent sources.
-
-import numpy as np
+# Inspect the fitted parameters describing the population trajectory and the effects of latent sources.
 
 for name in ("log_g_mean", "log_v0_mean", "tau_mean", "betas_mean"):
-    print(f"{name}:")
-    print(model.parameters[name])
-    print()
+    print(f"{name}:\n{model.parameters[name]}\n")
 
-# The ordinal model also estimates ``log_deltas_mean``. Its values are stored
-# on a logarithmic scale. Below, we apply ``exp`` to show the ordinal delays
-# on their original scale.
-#
-# Each row of the table represents an item. ``delta_h`` is the spacing between
-# the transitions into levels h-1 and h: for example, ``delta_2`` is the
-# spacing between the transitions into levels 1 and 2. ``delta_1`` is fixed
-# to zero and is therefore not included in the table.
-#
-# Items can have different maximum levels. Positions that do not correspond
-# to a transition may contain ``inf`` in ``log_deltas_mean``; the model masks
-# these positions during its calculations. They appear as blank cells below.
 
+# %%
+# In addition, the ordinal model estimates ``log_deltas_mean``.
+# We exponentiate its finite values to display the delays on their original scale.
+
+import numpy as np
 log_deltas = model.parameters["log_deltas_mean"].detach().cpu().numpy()
 
 deltas = np.full_like(log_deltas, np.nan)
 valid = np.isfinite(log_deltas)
 deltas[valid] = np.exp(log_deltas[valid])
 
+
+# %%
+# Each row represents an item. ``delta_h`` describes the spacing between
+# the transitions into levels ``h-1`` and ``h``; ``delta_1`` is fixed to zero and is omitted.
+# Larger deltas indicate longer intervals between consecutive score transitions.
+# Positions without a corresponding transition are masked and will appear as blank cells in the table.
+
 delta_table = pd.DataFrame(
     deltas,
     index=pd.Index(features, name="Item"),
-    columns=[
-        f"delta_{h}"
-        for h in range(2, log_deltas.shape[1] + 2)
-    ],
+    columns=[f"delta_{h}" for h in range(2, log_deltas.shape[1] + 2)],
 )
 
 print(delta_table.round(3).to_string(na_rep="—"))
 
 
+
 # %%
+# Visualize how the fitted delays space score transitions along the disease progression timeline.
+# The first transition of each item is aligned at time zero.
+
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(9, 3.5))
+
+for feature, row in zip(features, deltas):
+    x = np.r_[0, np.cumsum(row[np.isfinite(row)])]
+    ax.step(np.r_[x, 7.5], np.r_[1:len(x) + 1, len(x)], where="post", label=feature)
+
+ax.set(xlim=(0, 7.5), xticks=np.arange(8), xlabel="Time since first transition (years)", ylabel="Ordinal score")
+ax.grid()
+ax.legend()
+plt.show()
+
+# %%
+# For an example of the simulation workflow, see :doc:`plot_06_simulate`.

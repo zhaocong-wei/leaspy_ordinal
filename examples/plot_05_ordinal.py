@@ -20,11 +20,13 @@ from leaspy.io.data import Data
 data_path = Path(_leaspy_datasets.__file__).parent / "data" / "ordinal_example.csv"
 data = Data.from_csv_file(data_path)
 
+# Each row represents a patient visit; columns after ID and TIME are ordinal items.
 print(data.to_dataframe().head())
 
 # %%
 # Show how often each ordinal score occurs for each item.
-# Rows are ordinal scores, columns are items (Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y8), and each cell gives the number of observations with that score for that item.
+# Rows are ordinal scores, and columns are items (Y1, Y2, Y3, Y4, Y5, Y6, Y7, Y8).
+# Each cell gives the number of patient visits with that score for that item.
 # Items may have different ranges of scores.
 
 import pandas as pd
@@ -65,6 +67,7 @@ model.fit(
 for name in ("log_g_mean", "log_v0_mean", "tau_mean", "betas_mean"):
     print(f"{name}:\n{model.parameters[name]}\n")
 
+# In betas_mean, columns correspond to latent sources; rows give the coefficients for the items.
 
 # %%
 # In addition, the ordinal model estimates ``log_deltas_mean``.
@@ -109,6 +112,7 @@ for feature, row in zip(features, deltas):
 ax.set(xlim=(0, 7.5), xticks=np.arange(8), xlabel="Time since first transition (years)", ylabel="Ordinal score")
 ax.grid()
 ax.legend()
+fig.tight_layout()
 plt.show()
 
 # %%
